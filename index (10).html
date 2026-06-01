@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>현장 출입 안면인식</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+// ╔══════════════════════════════════════════╗
+// ║  🔧 Firebase 설정 — 여기만 바꾸세요!     ║
+// ╚══════════════════════════════════════════╝
+var firebaseConfig = {
+  apiKey: "AIzaSyAJyGMPEkiK2weewV9VJvgeBoFF2vIzPeU",
+  authDomain: "gate-check-73053.firebaseapp.com",
+  databaseURL: "https://gate-check-73053-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "gate-check-73053",
+  storageBucket: "gate-check-73053.firebasestorage.app",
+  messagingSenderId: "651991836146",
+  appId: "1:651991836146:web:1a33315ee5aba3a123776b"
+};
+firebase.initializeApp(firebaseConfig);
+var db = firebase.database();
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap');
+  :root{--bg:#0b0e14;--sf:#141922;--sf2:#1a2130;--bd:#1e2736;--tx:#e8ecf4;--dm:#6b7a94;--gn:#22c55e;--rd:#ef4444;--yl:#eab308;--bl:#3b82f6}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden}
+  body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--tx);-webkit-tap-highlight-color:transparent}
+  .screen{display:none;flex-direction:column;height:100%}.screen.active{display:flex}
+  .hdr{padding:14px 16px;background:var(--sf);border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:10}
+  .hdr h1{font-size:15px;font-weight:700}.hdr .a{color:var(--bl)}
+  .hdr-r{display:flex;align-items:center;gap:10px}
+  .site-badge{font-size:10px;padding:3px 8px;border-radius:10px;background:rgba(59,130,246,.15);color:var(--bl);font-weight:500}
+  .clock{font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--dm)}
+
+  .reg{flex:1;display:flex;flex-direction:column;justify-content:center;padding:32px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .reg-top{text-align:center;margin-bottom:24px}
+  .reg-top .icon{font-size:48px;margin-bottom:8px}
+  .reg-top h2{font-size:20px;font-weight:900;margin-bottom:4px}
+  .reg-top p{font-size:13px;color:var(--dm);line-height:1.6}
+  .field{margin-bottom:14px}
+  .field label{font-size:12px;color:var(--dm);font-weight:500;display:block;margin-bottom:5px}
+  .field input,.field select{width:100%;padding:13px 16px;background:var(--sf2);border:1.5px solid var(--bd);border-radius:10px;font-family:'Noto Sans KR',sans-serif;font-size:15px;color:var(--tx);outline:none;transition:border-color .2s;-webkit-appearance:none}
+  .field input:focus,.field select:focus{border-color:var(--bl)}
+  .field input::placeholder{color:rgba(107,122,148,.5)}
+  .btn{width:100%;padding:15px;border:none;border-radius:12px;font-family:'Noto Sans KR',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .15s}
+  .btn:active{transform:scale(.98)}
+  .btn-blue{background:var(--bl);color:#fff}.btn-blue:disabled{opacity:.35}
+  .btn-dark{background:var(--sf2);color:var(--tx);border:1px solid var(--bd)}
+  .btn-green{background:var(--gn);color:#fff}
+  .btn-row{display:flex;gap:10px;margin-top:12px}
+  .btn-row .btn{flex:1}
+
+  /* Camera */
+  .cam-area{flex:1;position:relative;overflow:hidden;background:#000}
+  .cam-area video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  .cam-area canvas{position:absolute;top:0;left:0;width:100%;height:100%;transform:scaleX(-1)}
+  .oval{position:absolute;top:50%;left:50%;width:270px;height:350px;transform:translate(-50%,-52%);border:3px dashed rgba(255,255,255,.2);border-radius:50%;pointer-events:none;z-index:5;transition:all .3s}
+  .oval.detecting{border-style:solid;border-color:var(--yl)}
+  .oval.good{border-color:var(--gn);border-style:solid;box-shadow:0 0 40px rgba(34,197,94,.15)}
+  .oval.captured{border-color:var(--gn);box-shadow:0 0 60px rgba(34,197,94,.25)}
+  .ring-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-52%);z-index:6;pointer-events:none;opacity:0;transition:opacity .3s}
+  .ring-wrap.show{opacity:1}
+  .guide-msg{position:absolute;top:50%;left:50%;transform:translate(-50%,200px);font-size:14px;text-align:center;z-index:7;pointer-events:none;width:280px;line-height:1.5;font-weight:500}
+  .angle-box{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);border-radius:8px;padding:8px 12px;z-index:8;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dm);line-height:1.7}
+  .angle-box .g{color:var(--gn)}.angle-box .y{color:var(--yl)}
+  .wk-badge{position:absolute;bottom:12px;left:12px;right:12px;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);border-radius:10px;padding:10px 14px;z-index:8;display:flex;align-items:center;gap:10px}
+  .wk-badge .name{font-size:14px;font-weight:700}.wk-badge .meta{font-size:11px;color:var(--dm);font-family:'JetBrains Mono',monospace}
+  .hist-badge{position:absolute;top:12px;right:12px;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);border-radius:8px;padding:6px 10px;z-index:8;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dm)}
+  .flash{position:absolute;top:0;left:0;right:0;bottom:0;background:#fff;z-index:30;opacity:0;pointer-events:none}
+  @keyframes flashA{0%{opacity:.9}100%{opacity:0}}
+  .flash.fire{animation:flashA .5s ease-out}
+
+  /* Result */
+  .result-ov{position:absolute;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;align-items:center;z-index:50;background:rgba(11,14,20,.92);backdrop-filter:blur(20px);overflow-y:auto;padding:32px 0 40px;-webkit-overflow-scrolling:touch}
+  .result-ov.active{display:flex}
+  .r-photo{width:180px;height:225px;border-radius:14px;overflow:hidden;border:4px solid var(--gn);margin-bottom:8px;box-shadow:0 8px 32px rgba(34,197,94,.2);cursor:pointer}
+  .r-photo img{width:100%;height:100%;object-fit:cover;-webkit-touch-callout:default}
+  .r-hint{font-size:11px;color:var(--dm);margin-bottom:12px}
+  .r-name{font-size:20px;font-weight:900;margin-bottom:2px}
+  .r-meta{font-size:12px;color:var(--dm);font-family:'JetBrains Mono',monospace;margin-bottom:16px}
+  .r-check{font-size:64px;margin-bottom:4px}
+  .r-title{font-size:34px;font-weight:900;color:var(--gn);margin-bottom:4px}
+  .r-time{font-size:13px;color:var(--dm);font-family:'JetBrains Mono',monospace;margin-bottom:20px}
+  .r-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 18px;width:calc(100% - 48px);max-width:320px;margin-bottom:16px}
+  .r-row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px}
+  .r-row .rl{color:var(--dm)}.r-row .rv{font-family:'JetBrains Mono',monospace;font-weight:600}
+  .r-btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .r-btns button{padding:12px 20px;border-radius:10px;border:none;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:600;cursor:pointer}
+  .db-status{font-size:11px;color:var(--dm);margin-top:8px;text-align:center}
+
+  /* ── Admin Panel ── */
+  .admin-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px}
+  .search-bar{display:flex;gap:8px;margin-bottom:16px}
+  .search-bar input{flex:1;padding:12px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;font-family:'Noto Sans KR',sans-serif;font-size:14px;color:var(--tx);outline:none}
+  .search-bar input:focus{border-color:var(--bl)}
+  .search-bar input::placeholder{color:rgba(107,122,148,.5)}
+  .rec-count{font-size:12px;color:var(--dm);margin-bottom:12px;font-family:'JetBrains Mono',monospace}
+  .rec-list{display:flex;flex-direction:column;gap:10px}
+  .rec-item{display:flex;gap:12px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:12px;align-items:center}
+  .rec-item img{width:56px;height:70px;border-radius:6px;object-fit:cover;flex-shrink:0;border:1px solid var(--bd);cursor:zoom-in}
+  .rec-info{flex:1;min-width:0}
+  .rec-info .ri-name{font-size:14px;font-weight:700}
+  .rec-info .ri-id{font-size:11px;color:var(--dm);font-family:'JetBrains Mono',monospace}
+  .rec-info .ri-time{font-size:11px;color:var(--dm)}
+  .rec-info .ri-zone{font-size:11px;color:var(--bl)}
+  .no-data{text-align:center;padding:40px;color:var(--dm);font-size:14px}
+
+  /* Delete */
+  .rec-del{flex-shrink:0;padding:8px 14px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:'Noto Sans KR',sans-serif;min-width:44px;text-align:center}
+  .rec-del:active{background:#dc2626}
+
+  /* Person card */
+  .person-card{display:flex;gap:12px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px;align-items:center;cursor:pointer;margin-bottom:8px;transition:border-color .15s}
+  .person-card:active{border-color:var(--bl)}
+  .person-card img{width:48px;height:60px;border-radius:8px;object-fit:cover;flex-shrink:0;border:1px solid var(--bd)}
+  .person-card .pc-info{flex:1;min-width:0}
+  .person-card .pc-name{font-size:15px;font-weight:700}
+  .person-card .pc-id{font-size:11px;color:var(--dm);font-family:'JetBrains Mono',monospace}
+  .person-card .pc-count{font-size:11px;color:var(--bl)}
+  .person-card .pc-arrow{color:var(--dm);font-size:16px;flex-shrink:0}
+
+  /* Person profile */
+  .person-profile{display:flex;gap:14px;background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px;align-items:center}
+  .person-profile img{width:70px;height:88px;border-radius:10px;object-fit:cover;border:2px solid var(--bl)}
+  .person-profile .pp-info{flex:1}
+  .person-profile .pp-name{font-size:18px;font-weight:900;margin-bottom:2px}
+  .person-profile .pp-id{font-size:12px;color:var(--dm);font-family:'JetBrains Mono',monospace;margin-bottom:4px}
+  .person-profile .pp-zone{font-size:12px;color:var(--bl)}
+  .person-profile .pp-stat{font-size:11px;color:var(--dm);margin-top:6px}
+
+  .nav-tabs{display:flex;border-top:1px solid var(--bd);background:var(--sf);flex-shrink:0}
+  .nav-tab{flex:1;padding:12px;text-align:center;font-size:12px;font-weight:500;color:var(--dm);cursor:pointer;transition:all .15s;border-top:2px solid transparent}
+  .nav-tab.active{color:var(--bl);border-top-color:var(--bl)}
+
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- ═══ Screen 0: 등록 ═══ -->
+<div class="screen active" id="scr-reg">
+  <div class="hdr">
+    <h1>🏗️ 현장 <span class="a">안면인식</span></h1>
+    <span class="site-badge">건설현장 A</span>
+  </div>
+  <div class="reg">
+    <div class="reg-top">
+      <div class="icon">👷</div>
+      <h2>작업자 정보 입력</h2>
+      <p>출입 전 작업자 정보를 입력하세요.</p>
+    </div>
+    <div class="field"><label>이름</label><input type="text" id="inp-name" placeholder="홍길동" autocomplete="off"></div>
+    <div class="field"><label>사번</label><input type="text" id="inp-id" placeholder="A-2024-0312" autocomplete="off"></div>
+    <div class="field"><label>작업 구역</label><input type="text" id="inp-zone" placeholder="3공구 타워크레인" autocomplete="off"></div>
+    <button class="btn btn-blue" id="btn-next" onclick="goCamera()" disabled>안면 촬영 →</button>
+    <div class="btn-row">
+      <button class="btn btn-dark" onclick="goAdmin()">📋 기록 열람</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Screen 1: 카메라 ═══ -->
+<div class="screen" id="scr-cam">
+  <div class="hdr">
+    <h1>📸 안면 촬영</h1>
+    <span class="clock" id="clock"></span>
+  </div>
+  <div class="cam-area">
+    <video id="cam" autoplay playsinline muted></video>
+    <canvas id="ov-cv"></canvas>
+    <div class="flash" id="flash"></div>
+    <div class="oval" id="oval"></div>
+    <div class="ring-wrap" id="ring-wrap">
+      <svg width="290" height="370" viewBox="0 0 290 370">
+        <ellipse cx="145" cy="185" rx="135" ry="175" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="5"/>
+        <ellipse cx="145" cy="185" rx="135" ry="175" fill="none" stroke="var(--gn)" stroke-width="5" stroke-dasharray="980" stroke-dashoffset="980" stroke-linecap="round" id="ring-el"/>
+      </svg>
+    </div>
+    <div class="guide-msg" id="guide-msg" style="color:var(--dm)">얼굴을 원 안에 맞춰주세요</div>
+    <div class="angle-box"><span>좌우:</span> <span id="h-yaw" class="y">—</span>° <span>상하:</span> <span id="h-pitch" class="y">—</span>°</div>
+    <div class="hist-badge" id="hist-badge">오늘 0명</div>
+    <div class="wk-badge"><div><div class="name" id="wk-name"></div><div class="meta" id="wk-meta"></div></div></div>
+
+    <!-- Result overlay -->
+    <div class="result-ov" id="result-ov">
+      <div class="r-photo" onclick="openFullPhoto(photoData)"><img id="r-img" src=""></div>
+      <div class="r-hint">📱 사진을 탭하면 원본 크기로 열림</div>
+      <div class="r-name" id="r-name"></div>
+      <div class="r-meta" id="r-meta"></div>
+      <div class="r-check">✅</div>
+      <div class="r-title">출입 확인</div>
+      <div class="r-time" id="r-time"></div>
+      <div class="r-card" id="r-card"></div>
+      <div class="r-btns">
+        <button class="btn-dark" onclick="sharePhoto()">📸 사진 저장</button>
+        <button class="btn-dark" onclick="goAdmin()">📋 기록 열람</button>
+        <button class="btn-green" onclick="nextWorker()">다음 작업자 →</button>
+      </div>
+      <div class="db-status" id="db-status"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Screen 2: 관리자 열람 ═══ -->
+<div class="screen" id="scr-admin">
+  <div class="hdr">
+    <h1>📋 출입 기록</h1>
+    <span class="clock" id="clock2"></span>
+  </div>
+  <div class="admin-body" id="admin-body">
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="이름 또는 사번 검색..." oninput="filterRecords()">
+    </div>
+    <div class="rec-count" id="rec-count">로딩중...</div>
+    <div class="rec-list" id="rec-list"></div>
+  </div>
+  <div class="nav-tabs">
+    <div class="nav-tab" onclick="showScreen('scr-reg')">👷 촬영</div>
+    <div class="nav-tab active" onclick="setTab('all')">📋 전체</div>
+    <div class="nav-tab" onclick="setTab('today')">📅 오늘</div>
+    <div class="nav-tab" onclick="setTab('person')">👤 개인별</div>
+  </div>
+</div>
+
+<!-- ═══ Screen 3: 개인 상세 ═══ -->
+<div class="screen" id="scr-person">
+  <div class="hdr">
+    <h1 id="person-hdr-name">👤 개인 기록</h1>
+    <span style="font-size:12px;color:var(--dm);cursor:pointer" onclick="goAdmin()">← 목록</span>
+  </div>
+  <div class="admin-body">
+    <div class="person-profile" id="person-profile"></div>
+    <div class="rec-count" id="person-count"></div>
+    <div class="rec-list" id="person-list"></div>
+  </div>
+  <div class="nav-tabs">
+    <div class="nav-tab" onclick="showScreen('scr-reg')">👷 촬영</div>
+    <div class="nav-tab" onclick="setTab('all')">📋 전체</div>
+    <div class="nav-tab" onclick="setTab('today')">📅 오늘</div>
+    <div class="nav-tab active" onclick="setTab('person')">👤 개인별</div>
+  </div>
+</div>
+
+<script>
+// ══════════════════
+//  State
+// ══════════════════
+var faceMesh=null, landmarks=null, faceDetected=false;
+var faceYaw=0, facePitch=0, angleOK=false;
+var YAW_TH=12, PITCH_TH=10;
+var photoTaken=false, photoData='';
+var goodStart=0, HOLD=1500;
+var wName='', wID='', wZone='';
+var todayCount=0;
+var currentRecord=null;
+var allRecords=[];
+var filterMode='all'; // 'all' or 'today'
+var camInitialized=false;
+
+// ── Registration ──
+document.getElementById('inp-name').addEventListener('input',chk);
+document.getElementById('inp-id').addEventListener('input',chk);
+function chk(){
+  var n=document.getElementById('inp-name').value.trim();
+  var i=document.getElementById('inp-id').value.trim();
+  document.getElementById('btn-next').disabled=!(n&&i);
+}
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active')});
+  document.getElementById(id).classList.add('active');
+}
+
+function goCamera(){
+  wName=document.getElementById('inp-name').value.trim();
+  wID=document.getElementById('inp-id').value.trim();
+  wZone=document.getElementById('inp-zone').value.trim()||'미지정';
+  document.getElementById('wk-name').textContent=wName;
+  document.getElementById('wk-meta').textContent=wID+' · '+wZone;
+  showScreen('scr-cam');
+  loadTodayCount();
+  if(!camInitialized) initCam();
+}
+
+function goAdmin(){
+  showScreen('scr-admin');
+  loadAllRecords();
+}
+
+function setTab(mode){
+  filterMode=mode;
+  if(mode==='person'){
+    showScreen('scr-admin');
+    loadAllRecords();
+  } else {
+    showScreen('scr-admin');
+    loadAllRecords();
+  }
+}
+
+function showToday(){
+  filterMode='today';
+  goAdmin();
+}
+
+// ══════════════════
+//  Camera
+// ══════════════════
+function initCam(){
+  faceMesh=new FaceMesh({locateFile:function(f){return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/'+f;}});
+  faceMesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+  faceMesh.onResults(onRes);
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}}})
+  .then(function(s){
+    var v=document.getElementById('cam');
+    v.srcObject=s;
+    v.onloadedmetadata=function(){v.play();var c=document.getElementById('ov-cv');c.width=v.videoWidth;c.height=v.videoHeight;camInitialized=true;loop();};
+  }).catch(function(e){
+    document.getElementById('guide-msg').textContent='카메라 권한을 허용해주세요';
+    alert('카메라 오류: '+e.message);
+  });
+}
+function loop(){var v=document.getElementById('cam');if(v.readyState>=2)faceMesh.send({image:v}).then(function(){requestAnimationFrame(loop)});else requestAnimationFrame(loop);}
+
+function calcAngle(lm){
+  var nose=lm[1],lc=lm[234],rc=lm[454];
+  faceYaw=((nose.x-(lc.x+rc.x)/2)/(Math.abs(rc.x-lc.x)+.001))*90;
+  var fh=lm[10],chin=lm[152];
+  facePitch=((nose.y-(fh.y+chin.y)/2)/(Math.abs(chin.y-fh.y)+.001)-.05)*90;
+  angleOK=Math.abs(faceYaw)<YAW_TH&&Math.abs(facePitch)<PITCH_TH;
+}
+
+function calcEAR(lm,idx){var p=idx.map(function(i){return lm[i]});var v1=Math.sqrt(Math.pow(p[1].x-p[5].x,2)+Math.pow(p[1].y-p[5].y,2));var v2=Math.sqrt(Math.pow(p[2].x-p[4].x,2)+Math.pow(p[2].y-p[4].y,2));var h=Math.sqrt(Math.pow(p[0].x-p[3].x,2)+Math.pow(p[0].y-p[3].y,2));return(v1+v2)/(2*h);}
+
+function onRes(r){
+  var oval=document.getElementById('oval');
+  if(!r.multiFaceLandmarks||!r.multiFaceLandmarks.length){
+    faceDetected=false;oval.className='oval';
+    if(!photoTaken){document.getElementById('guide-msg').textContent='얼굴을 원 안에 맞춰주세요';document.getElementById('guide-msg').style.color='var(--dm)';}
+    goodStart=0;document.getElementById('ring-wrap').classList.remove('show');document.getElementById('ring-el').style.strokeDashoffset='980';
+    return;
+  }
+  faceDetected=true;landmarks=r.multiFaceLandmarks[0];calcAngle(landmarks);
+  document.getElementById('h-yaw').textContent=faceYaw.toFixed(0);document.getElementById('h-yaw').className=Math.abs(faceYaw)<YAW_TH?'g':'y';
+  document.getElementById('h-pitch').textContent=facePitch.toFixed(0);document.getElementById('h-pitch').className=Math.abs(facePitch)<PITCH_TH?'g':'y';
+
+  if(photoTaken) return;
+
+  if(angleOK){
+    oval.className='oval good';
+    if(goodStart===0) goodStart=performance.now();
+    var held=performance.now()-goodStart,pct=Math.min(1,held/HOLD);
+    document.getElementById('ring-wrap').classList.add('show');
+    document.getElementById('ring-el').style.strokeDashoffset=(980*(1-pct)).toFixed(0);
+    document.getElementById('guide-msg').textContent='그대로 유지하세요...';document.getElementById('guide-msg').style.color='var(--gn)';
+    if(held>=HOLD) capture();
+  } else {
+    oval.className='oval detecting';goodStart=0;
+    document.getElementById('ring-wrap').classList.remove('show');document.getElementById('ring-el').style.strokeDashoffset='980';
+    var hint='정면을 바라봐주세요';
+    if(faceYaw<-YAW_TH) hint='← 오른쪽으로 살짝';else if(faceYaw>YAW_TH) hint='→ 왼쪽으로 살짝';
+    else if(facePitch<-PITCH_TH) hint='↑ 고개를 조금 들어주세요';else if(facePitch>PITCH_TH) hint='↓ 고개를 조금 내려주세요';
+    document.getElementById('guide-msg').textContent=hint;document.getElementById('guide-msg').style.color='var(--yl)';
+  }
+
+  var c=document.getElementById('ov-cv'),cx=c.getContext('2d');cx.clearRect(0,0,c.width,c.height);
+  if(landmarks.length>=478){[468,473].forEach(function(i){var p=landmarks[i];cx.beginPath();cx.arc(p.x*c.width,p.y*c.height,3,0,Math.PI*2);cx.fillStyle='rgba(34,197,94,.6)';cx.fill();});}
+}
+
+// ══════════════════
+//  Capture
+// ══════════════════
+function capture(){
+  photoTaken=true;
+  var v=document.getElementById('cam'),c=document.createElement('canvas');
+  c.width=v.videoWidth;c.height=v.videoHeight;
+  var cx=c.getContext('2d');cx.translate(c.width,0);cx.scale(-1,1);cx.drawImage(v,0,0);
+  photoData=c.toDataURL('image/jpeg',.85);
+
+  var fl=document.getElementById('flash');fl.classList.remove('fire');void fl.offsetWidth;fl.classList.add('fire');
+  if(navigator.vibrate) navigator.vibrate([100,50,100]);
+  document.getElementById('oval').className='oval captured';
+  document.getElementById('ring-wrap').classList.remove('show');
+  document.getElementById('guide-msg').textContent='촬영 완료!';document.getElementById('guide-msg').style.color='var(--gn)';
+
+  // Thumbnail for DB (smaller)
+  var thumb=document.createElement('canvas');thumb.width=320;thumb.height=400;
+  var tx=thumb.getContext('2d');
+  var img=new Image();
+  img.onload=function(){
+    tx.drawImage(img,0,0,320,400);
+    var thumbData=thumb.toDataURL('image/jpeg',.75);
+    var now=new Date();
+    currentRecord={
+      name:wName, id:wID, zone:wZone,
+      timestamp:now.toISOString(),
+      time:now.toLocaleString('ko-KR'),
+      date:now.toISOString().slice(0,10),
+      photo:thumbData,
+      angle:{yaw:faceYaw.toFixed(0),pitch:facePitch.toFixed(0)}
+    };
+
+    // Save to Firebase
+    saveToFirebase(currentRecord);
+
+    todayCount++;
+    document.getElementById('hist-badge').textContent='오늘 '+todayCount+'명';
+
+    // Show result
+    setTimeout(function(){
+      document.getElementById('r-img').src=photoData; // full photo for display
+      document.getElementById('r-name').textContent=wName;
+      document.getElementById('r-meta').textContent=wID+' · '+wZone;
+      document.getElementById('r-time').textContent=now.getFullYear()+'.'+(now.getMonth()+1)+'.'+now.getDate()+' '+now.toLocaleTimeString('ko-KR');
+      document.getElementById('r-card').innerHTML=rr('이름',wName)+rr('사번',wID)+rr('작업 구역',wZone)+rr('촬영 시각',now.toLocaleTimeString('ko-KR'))+rr('얼굴 각도','Y'+faceYaw.toFixed(0)+'° P'+facePitch.toFixed(0)+'°');
+      document.getElementById('result-ov').classList.add('active');
+    },600);
+  };
+  img.src=photoData;
+}
+
+function rr(l,v){return '<div class="r-row"><span class="rl">'+l+'</span><span class="rv">'+v+'</span></div>';}
+
+// ══════════════════
+//  Firebase DB
+// ══════════════════
+function saveToFirebase(record){
+  var statusEl=document.getElementById('db-status');
+  try{
+    db.ref('records').push(record).then(function(){
+      statusEl.textContent='✓ 서버에 저장됨';statusEl.style.color='var(--gn)';
+    }).catch(function(e){
+      statusEl.textContent='⚠ 서버 저장 실패 (로컬 저장됨)';statusEl.style.color='var(--yl)';
+      saveLocal(record);
+    });
+  }catch(e){
+    statusEl.textContent='⚠ 오프라인 (로컬 저장)';statusEl.style.color='var(--yl)';
+    saveLocal(record);
+  }
+}
+
+function saveLocal(record){
+  try{
+    var recs=JSON.parse(localStorage.getItem('gate_records')||'[]');
+    recs.push(record);
+    if(recs.length>100) recs=recs.slice(-100);
+    localStorage.setItem('gate_records',JSON.stringify(recs));
+  }catch(e){}
+}
+
+function loadTodayCount(){
+  var today=new Date().toISOString().slice(0,10);
+  try{
+    db.ref('records').orderByChild('date').equalTo(today).once('value',function(snap){
+      var data=snap.val();
+      todayCount=data?Object.keys(data).length:0;
+      document.getElementById('hist-badge').textContent='오늘 '+todayCount+'명';
+    });
+  }catch(e){}
+}
+
+function loadAllRecords(){
+  var listEl=document.getElementById('rec-list');
+  var countEl=document.getElementById('rec-count');
+  listEl.innerHTML='<div class="no-data">로딩중...</div>';
+
+  try{
+    db.ref('records').orderByChild('timestamp').once('value',function(snap){
+      allRecords=[];
+      snap.forEach(function(child){
+        var r=child.val();
+        r._key=child.key;
+        allRecords.push(r);
+      });
+      allRecords.reverse(); // newest first
+      filterRecords();
+    });
+  }catch(e){
+    // Fallback to localStorage
+    try{
+      allRecords=JSON.parse(localStorage.getItem('gate_records')||'[]').reverse();
+      filterRecords();
+    }catch(e2){
+      listEl.innerHTML='<div class="no-data">데이터를 불러올 수 없습니다</div>';
+    }
+  }
+}
+
+function filterRecords(){
+  var query=document.getElementById('search-input').value.trim().toLowerCase();
+  var listEl=document.getElementById('rec-list');
+  var countEl=document.getElementById('rec-count');
+  var today=new Date().toISOString().slice(0,10);
+
+  // Update nav tab highlights
+  document.querySelectorAll('#scr-admin .nav-tab').forEach(function(t,i){
+    t.classList.toggle('active', (filterMode==='all'&&i===1)||(filterMode==='today'&&i===2)||(filterMode==='person'&&i===3));
+  });
+
+  // Person mode: group by worker ID
+  if(filterMode==='person'){
+    var people={};
+    allRecords.forEach(function(r){
+      var key=r.id||r.name||'unknown';
+      if(query){
+        var text=((r.name||'')+(r.id||'')+(r.zone||'')).toLowerCase();
+        if(text.indexOf(query)<0) return;
+      }
+      if(!people[key]) people[key]={name:r.name,id:r.id,zone:r.zone,photo:r.photo,records:[]};
+      people[key].records.push(r);
+    });
+    var keys=Object.keys(people);
+    countEl.textContent='등록 작업자: '+keys.length+'명';
+    if(keys.length===0){listEl.innerHTML='<div class="no-data">기록이 없습니다</div>';return;}
+    listEl.innerHTML=keys.map(function(k){
+      var p=people[k];
+      return '<div class="person-card" onclick="showPerson(\''+k.replace(/'/g,"\\'")+'\')">'
+        +'<img src="'+(p.photo||'')+'">'
+        +'<div class="pc-info">'
+        +'<div class="pc-name">'+(p.name||'—')+'</div>'
+        +'<div class="pc-id">'+(p.id||'—')+' · '+(p.zone||'')+'</div>'
+        +'<div class="pc-count">출입 '+p.records.length+'회 · 최근 '+(p.records[0].time||'')+'</div>'
+        +'</div><div class="pc-arrow">›</div></div>';
+    }).join('');
+    return;
+  }
+
+  // Normal list mode
+  var filtered=allRecords.filter(function(r){
+    if(filterMode==='today'&&r.date!==today) return false;
+    if(query){
+      var text=((r.name||'')+(r.id||'')+(r.zone||'')).toLowerCase();
+      if(text.indexOf(query)<0) return false;
+    }
+    return true;
+  });
+
+  var label=filterMode==='today'?'오늘 출입 기록':'전체 출입 기록';
+  countEl.textContent=label+': '+filtered.length+'건';
+
+  if(filtered.length===0){
+    listEl.innerHTML='<div class="no-data">기록이 없습니다</div>';
+    return;
+  }
+
+  listEl.innerHTML=filtered.slice(0,100).map(function(r){
+    var timeStr=r.time||'';
+    var key=r._key||'';
+    var photoSrc=(r.photo||'').replace(/'/g,"\\'");
+    return '<div class="rec-item" onclick="showPerson(\''+(r.id||r.name||'').replace(/'/g,"\\'")+'\')">'
+      +'<img src="'+(r.photo||'')+'" alt="" onclick="event.stopPropagation();openFullPhoto(\''+photoSrc+'\')" style="cursor:zoom-in">'
+      +'<div class="rec-info">'
+      +'<div class="ri-name">'+(r.name||'—')+'</div>'
+      +'<div class="ri-id">'+(r.id||'—')+'</div>'
+      +'<div class="ri-zone">'+(r.zone||'')+'</div>'
+      +'<div class="ri-time">'+timeStr+'</div>'
+      +'</div>'
+      +(key?'<div class="rec-del" onclick="event.stopPropagation();deleteRecord(\''+key+'\')">삭제</div>':'')
+      +'</div>';
+  }).join('');
+}
+
+// ══════════════════
+//  Person Detail
+// ══════════════════
+function showPerson(personKey){
+  showScreen('scr-person');
+  var records=allRecords.filter(function(r){return (r.id||r.name)===personKey;});
+  if(records.length===0){document.getElementById('person-list').innerHTML='<div class="no-data">기록 없음</div>';return;}
+
+  var p=records[0];
+  document.getElementById('person-hdr-name').textContent='👤 '+p.name;
+  document.getElementById('person-profile').innerHTML=
+    '<img src="'+(p.photo||'')+'">'
+    +'<div class="pp-info">'
+    +'<div class="pp-name">'+p.name+'</div>'
+    +'<div class="pp-id">'+p.id+'</div>'
+    +'<div class="pp-zone">'+p.zone+'</div>'
+    +'<div class="pp-stat">총 출입 '+records.length+'회 · 최초 '+(records[records.length-1].time||'')+'</div>'
+    +'</div>';
+
+  document.getElementById('person-count').textContent='출입 기록: '+records.length+'건';
+  document.getElementById('person-list').innerHTML=records.map(function(r){
+    var key=r._key||'';
+    var photoSrc=(r.photo||'').replace(/'/g,"\\'");
+    return '<div class="rec-item">'
+      +'<img src="'+(r.photo||'')+'" alt="" onclick="openFullPhoto(\''+photoSrc+'\')" style="cursor:zoom-in">'
+      +'<div class="rec-info">'
+      +'<div class="ri-time" style="font-size:13px;color:var(--tx);font-weight:600">'+(r.time||'')+'</div>'
+      +'<div class="ri-zone">'+(r.zone||'')+'</div>'
+      +'<div class="ri-id">Yaw '+(r.angle?r.angle.yaw:'—')+'° Pitch '+(r.angle?r.angle.pitch:'—')+'°</div>'
+      +'</div>'
+      +(key?'<div class="rec-del" onclick="event.stopPropagation();deleteRecord(\''+key+'\',\''+personKey+'\')">삭제</div>':'')
+      +'</div>';
+  }).join('');
+}
+
+// ══════════════════
+//  Delete Record
+// ══════════════════
+function deleteRecord(key, personKey){
+  if(!confirm('이 기록을 삭제하시겠습니까?')) return;
+  try{
+    db.ref('records/'+key).remove().then(function(){
+      // Remove from local array
+      allRecords=allRecords.filter(function(r){return r._key!==key;});
+      if(personKey) showPerson(personKey);
+      else filterRecords();
+    }).catch(function(e){
+      alert('삭제 실패: '+e.message);
+    });
+  }catch(e){
+    alert('삭제 오류: '+e.message);
+  }
+}
+
+// ══════════════════
+//  Photo share
+// ══════════════════
+function sharePhoto(){
+  if(!photoData) return;
+  openFullPhoto(photoData);
+}
+
+function openFullPhoto(src){
+  if(!src) return;
+  var win=window.open();
+  if(win){
+    win.document.write('<html><head><title>사진 저장</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}img{max-width:95%;max-height:80vh;border-radius:8px;-webkit-touch-callout:default}p{color:#aaa;margin-top:16px;font-size:14px}.btn{margin-top:12px;padding:12px 28px;background:#3b82f6;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}</style></head><body><img src="'+src+'"><p>사진을 길게 눌러 → 이미지 저장</p></body></html>');
+    win.document.close();
+  }
+}
+
+function nextWorker(){
+  document.getElementById('result-ov').classList.remove('active');
+  photoTaken=false;photoData='';goodStart=0;currentRecord=null;
+  document.getElementById('oval').className='oval';
+  document.getElementById('guide-msg').textContent='얼굴을 원 안에 맞춰주세요';
+  document.getElementById('guide-msg').style.color='var(--dm)';
+  showScreen('scr-reg');
+  document.getElementById('inp-name').value='';document.getElementById('inp-id').value='';document.getElementById('inp-zone').value='';
+  document.getElementById('btn-next').disabled=true;
+}
+
+setInterval(function(){
+  var t=new Date().toLocaleTimeString('ko-KR');
+  var e1=document.getElementById('clock'),e2=document.getElementById('clock2');
+  if(e1)e1.textContent=t;if(e2)e2.textContent=t;
+},1000);
+</script>
+</body>
+</html>
